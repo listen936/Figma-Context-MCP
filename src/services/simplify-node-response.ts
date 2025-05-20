@@ -5,6 +5,9 @@ import type {
   Paint,
   Vector,
   GetFileResponse,
+  Component,
+  ComponentSet,
+  ComponentPropertyType,
 } from "@figma/rest-api-spec";
 import { hasValue, isRectangleCornerRadii, isTruthy } from "~/utils/identity.js";
 import {
@@ -13,6 +16,7 @@ import {
   type StyleId,
   parsePaint,
   isVisible,
+  getComponentData,
 } from "~/utils/common.js";
 import { buildSimplifiedStrokes, type SimplifiedStroke } from "~/transformers/style.js";
 import { buildSimplifiedEffects, type SimplifiedEffects } from "~/transformers/effects.js";
@@ -61,7 +65,11 @@ export interface SimplifiedDesign {
   nodes: SimplifiedNode[];
   globalVars: GlobalVars;
 }
-
+export interface ComponentProperties {
+  name: string;
+  value: string;
+  type: ComponentPropertyType;
+}
 export interface SimplifiedNode {
   id: string;
   name: string;
@@ -78,12 +86,15 @@ export interface SimplifiedNode {
   effects?: string;
   opacity?: number;
   borderRadius?: string;
+  componentName?: string; // type:INSTANCE 是icon 组件使用 icon name
   // layout & alignment
   layout?: string;
   // backgroundColor?: ColorValue; // Deprecated by Figma API
   // for rect-specific strokes, etc.
   // children
   children?: SimplifiedNode[];
+  componentProperties?: ComponentProperties[];
+  remote?: boolean; // 是否远程组件
 }
 
 export interface BoundingBox {
@@ -121,17 +132,29 @@ export interface ColorValue {
 export function parseFigmaResponse(data: GetFileResponse | GetFileNodesResponse): SimplifiedDesign {
   const { name, lastModified, thumbnailUrl } = data;
   let nodes: FigmaDocumentNode[];
+  let components: Record<string, Component> = {};
+  let componentSets: Record<string, ComponentSet> = {};
   if ("document" in data) {
     nodes = Object.values(data.document.children);
   } else {
-    nodes = Object.values(data.nodes).map((n) => n.document);
+    nodes = [];
+    for (const node of Object.values(data.nodes)) {
+      nodes.push(node.document);
+      if (node.components) {
+        Object.assign(components, node.components);
+      }
+      if (node.componentSets) {
+        Object.assign(componentSets, node.componentSets);
+      }
+    }
   }
+
   let globalVars: GlobalVars = {
     styles: {},
   };
   const simplifiedNodes: SimplifiedNode[] = nodes
     .filter(isVisible)
-    .map((n) => parseNode(globalVars, n))
+    .map((n) => parseNode(globalVars, n, undefined, components,componentSets))
     .filter((child) => child !== null && child !== undefined);
 
   return {
@@ -189,6 +212,8 @@ function parseNode(
   globalVars: GlobalVars,
   n: FigmaDocumentNode,
   parent?: FigmaDocumentNode,
+  components?: Record<string, Component>, // 修改类型为普通对象
+  componentSets?: Record<string, ComponentSet>,
 ): SimplifiedNode | null {
   const { id, name, type } = n;
 
@@ -205,14 +230,8 @@ function parseNode(
       fontFamily: style.fontFamily,
       fontWeight: style.fontWeight,
       fontSize: style.fontSize,
-      lineHeight:
-        style.lineHeightPx && style.fontSize
-          ? `${style.lineHeightPx / style.fontSize}em`
-          : undefined,
-      letterSpacing:
-        style.letterSpacing && style.letterSpacing !== 0 && style.fontSize
-          ? `${(style.letterSpacing / style.fontSize) * 100}%`
-          : undefined,
+      lineHeight:`${style.lineHeightPx}px`,
+      letterSpacing:`${style.letterSpacing}px`,
       textCase: style.textCase,
       textAlignHorizontal: style.textAlignHorizontal,
       textAlignVertical: style.textAlignVertical,
@@ -262,14 +281,31 @@ function parseNode(
     simplified.borderRadius = `${n.rectangleCornerRadii[0]}px ${n.rectangleCornerRadii[1]}px ${n.rectangleCornerRadii[2]}px ${n.rectangleCornerRadii[3]}px`;
   }
 
-  // Recursively process child nodes
-  if (hasValue("children", n) && n.children.length > 0) {
-    let children = n.children
-      .filter(isVisible)
-      .map((child) => parseNode(globalVars, child, n))
-      .filter((child) => child !== null && child !== undefined);
-    if (children.length) {
-      simplified.children = children;
+  if (type === "INSTANCE" && hasValue("componentId", n)) {
+    // 组件类型的节点没有必要再给出children
+    const componentId = n.componentId;
+    if (components?.[componentId]) {
+      const {name,remote}= getComponentData(components[componentId], componentSets!); 
+      simplified.componentName = name;
+      simplified.remote = remote;
+    }
+    if (hasValue("componentProperties", n)) {
+      simplified.componentProperties = Object.entries(n?.componentProperties ?? {}).map(([name, { value, type }]) => ({
+        name,
+        value: value.toString(),
+        type,
+      }));
+    }
+  } else {
+    // Recursively process child nodes
+    if (hasValue("children", n) && n.children.length > 0) {
+      let children = n.children
+        .filter(isVisible)
+        .map((child) => parseNode(globalVars, child, n, components,componentSets))
+        .filter((child) => child !== null && child !== undefined);
+      if (children.length) {
+        simplified.children = children;
+      }
     }
   }
 

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import type { Paint, RGBA } from "@figma/rest-api-spec";
+import type { Component, ComponentSet, Paint, RGBA } from "@figma/rest-api-spec";
 import type {
   CSSHexColor,
   CSSRGBAColor,
@@ -311,4 +311,36 @@ export function parsePaint(raw: Paint): SimplifiedFill {
  */
 export function isVisible(element: { visible?: boolean }): boolean {
   return element.visible ?? true;
+}
+
+/**
+ * /将componentId 'aa-bb-cc' 转换为 'AaBbCc'
+ * @param value - The componentId to convert
+ * @returns The converted componentName
+ */
+export function convertComponentName(value: string): string {
+  return value.replaceAll(" ", "")
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
+export function getComponentData(
+  component: Component,
+  componentSets: Record<string, ComponentSet>,
+) {
+  const { name, componentSetId, remote } = component;
+  if (componentSetId) {
+    const componentSet = componentSets?.[componentSetId as string];
+    if (componentSet) {
+      return {
+        name: convertComponentName(componentSet.name),
+        remote: componentSet.remote,
+      };
+    }
+  }
+  return {
+    name: convertComponentName(name),
+    remote,
+  };
 }
