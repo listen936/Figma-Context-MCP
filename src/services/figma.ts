@@ -128,20 +128,12 @@ export class FigmaService {
     scale: number = 2,
   ): Promise<string[]> {
     const pngIds = nodes.filter(({ fileType }) => fileType === "png").map(({ nodeId }) => nodeId);
-    const pngFiles =
+    const pngFilesPromise =
       pngIds.length > 0
         ? this.request<GetImagesResponse>(
             `/images/${fileKey}?ids=${pngIds.join(",")}&scale=${scale}&format=png`,
           ).then(({ images = {} }) => images)
         : ({} as GetImagesResponse["images"]);
-
-    const svgIds = nodes.filter(({ fileType }) => fileType === "svg").map(({ nodeId }) => nodeId);
-    const svgFiles =
-      svgIds.length > 0
-        ? this.request<GetImagesResponse>(
-            `/images/${fileKey}?ids=${svgIds.join(",")}&format=svg`,
-          ).then(({ images = {} }) => images)
-        : Promise.resolve({} as GetImagesResponse["images"]);
 
     const svgIds = nodes.filter(({ fileType }) => fileType === "svg").map(({ nodeId }) => nodeId);
     const svgFilesPromise =
@@ -162,7 +154,7 @@ export class FigmaService {
       if (imageUrl) {
         downloadPromises.push(downloadFigmaImage(fileName, localPath, imageUrl));
       } else {
-        Logger.warn(`Image URL not found for node ID: ${nodeId} in getImages`);
+        Logger.error(`Image URL not found for node ID: ${nodeId} in getImages`);
       }
     }
     return Promise.all(downloadPromises);

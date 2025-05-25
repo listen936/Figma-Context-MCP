@@ -1,6 +1,6 @@
 # LLM Prompting Guide for Figma to Code Conversion
 
-This guide provides step-by-step instructions for an LLM (or a user prompting an LLM) on how to effectively use the Material Component Producer (MCP) server to convert Figma designs into code, particularly targeting Flowbite Pro `.tsx` templates.
+This guide provides step-by-step instructions for an LLM (or a user prompting an LLM) on how to effectively use the Model Context Protocol (MCP) server to convert Figma designs into code, particularly targeting Flowbite Pro `.tsx` templates.
 
 ## Overall Workflow
 
