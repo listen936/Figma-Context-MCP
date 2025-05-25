@@ -6,7 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { Server } from "http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Logger } from "./utils/logger.js";
-
+const KEEP_ALIVE_INTERVAL_MS = 25000; // Send keep-alive every 25 seconds
 let httpServer: Server | null = null;
 const transports = {
   streamable: {} as Record<string, StreamableHTTPServerTransport>,
@@ -15,7 +15,7 @@ const transports = {
 
 export async function startHttpServer(port: number, mcpServer: McpServer): Promise<void> {
   const app = express();
-
+  const sseConnections = new Map<string, { res: Response; intervalId: NodeJS.Timeout }>();
   // Parse JSON requests for the Streamable HTTP endpoint only, will break SSE endpoint
   app.use("/mcp", express.json());
 
@@ -126,13 +126,44 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
     Logger.log(`New SSE connection established for sessionId ${transport.sessionId}`);
     Logger.log("/sse request headers:", req.headers);
     Logger.log("/sse request body:", req.body);
-
-    transports.sse[transport.sessionId] = transport;
+    // Start keep-alive ping
+    const sessionId = transport.sessionId; // Get session ID from transport
+    const intervalId = setInterval(() => {
+      if (sseConnections.has(sessionId) && !res.writableEnded) {
+        res.write(": keepalive\n\n");
+      } else {
+        // Should not happen if close handler is working, but clear just in case
+        clearInterval(intervalId);
+        sseConnections.delete(sessionId);
+      }
+    }, KEEP_ALIVE_INTERVAL_MS);
+    // Store connection details
+    sseConnections.set(sessionId, { res, intervalId });
+    transports.sse[sessionId] = transport;
     res.on("close", () => {
-      delete transports.sse[transport.sessionId];
+      delete transports.sse[sessionId];
+      // Clean up keep-alive interval
+      const connection = sseConnections.get(sessionId);
+      if (connection) {
+        clearInterval(connection.intervalId);
+        sseConnections.delete(sessionId);
+      }
     });
-
-    await mcpServer.connect(transport);
+    try {
+      await mcpServer.connect(transport);
+    } catch (error) {
+      console.error(
+        `[SSE Connection] Error connecting server to transport for ${sessionId}:`,
+        error,
+      );
+      // Ensure cleanup happens even if connect fails
+      clearInterval(intervalId);
+      sseConnections.delete(sessionId);
+      delete transports.sse[sessionId];
+      if (!res.writableEnded) {
+        res.status(500).end("Failed to connect MCP server to transport");
+      }
+    }
   });
 
   app.post("/messages", async (req, res) => {

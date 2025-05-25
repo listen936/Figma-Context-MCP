@@ -20,6 +20,7 @@ import {
   type StyleId,
   parsePaint,
   isVisible,
+  getComponentData,
 } from "~/utils/common.js";
 import { buildSimplifiedStrokes, type SimplifiedStroke } from "~/transformers/style.js";
 import { buildSimplifiedEffects, type SimplifiedEffects } from "~/transformers/effects.js";
@@ -96,6 +97,7 @@ export interface SimplifiedNode {
   effects?: string;
   opacity?: number;
   borderRadius?: string;
+  componentName?: string; // type:INSTANCE 是icon 组件使用 icon name
   // layout & alignment
   layout?: string;
   // backgroundColor?: ColorValue; // Deprecated by Figma API
@@ -104,6 +106,8 @@ export interface SimplifiedNode {
   componentProperties?: Record<string, any>;
   // children
   children?: SimplifiedNode[];
+  componentProperties?: ComponentProperties[];
+  remote?: boolean; // 是否远程组件
 }
 
 export interface BoundingBox {
@@ -238,6 +242,8 @@ function parseNode(
   imageAssets: ImageAsset[],
   n: FigmaDocumentNode,
   parent?: FigmaDocumentNode,
+  components?: Record<string, Component>, // 修改类型为普通对象
+  componentSets?: Record<string, ComponentSet>,
 ): SimplifiedNode | null {
   const { id, name, type } = n;
 
@@ -263,14 +269,8 @@ function parseNode(
       fontFamily: style.fontFamily,
       fontWeight: style.fontWeight,
       fontSize: style.fontSize,
-      lineHeight:
-        style.lineHeightPx && style.fontSize
-          ? `${style.lineHeightPx / style.fontSize}em`
-          : undefined,
-      letterSpacing:
-        style.letterSpacing && style.letterSpacing !== 0 && style.fontSize
-          ? `${(style.letterSpacing / style.fontSize) * 100}%`
-          : undefined,
+      lineHeight:`${style.lineHeightPx}px`,
+      letterSpacing:`${style.letterSpacing}px`,
       textCase: style.textCase,
       textAlignHorizontal: style.textAlignHorizontal,
       textAlignVertical: style.textAlignVertical,
